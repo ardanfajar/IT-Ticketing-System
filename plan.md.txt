@@ -1,0 +1,135 @@
+Rencana Pengembangan & Modifikasi IT Ticketing System
+
+Dokumen ini merangkum rencana kerja (roadmap) pembaruan sistem ticketing berdasarkan penyesuaian kebutuhan UI/UX, aturan bisnis (business rules), serta fitur pelaporan yang telah disepakati pada diskusi sebelumnya.
+
+1. Ringkasan Perubahan Utama (Scope of Work)
+
+Terdapat tiga pilar pembaruan utama yang diimplementasikan pada fase ini:
+
+Restriksi Keamanan Otentikasi: Menghapus fitur login tamu (Guest Mode) untuk memastikan integritas dan akuntabilitas data.
+
+Lokalisasi & Standarisasi Status: Mengubah seluruh status alur kerja tiket dari bahasa Inggris (Open, In-Progress, Completed, Cancelled) ke istilah operasional internal yang baru.
+
+Modul Pelaporan Eksekutif: Menambahkan fitur ekspor data kinerja petugas ke dalam format dokumen PDF secara dinamis.
+
+2. Pembaruan Skema Status Tiket (Workflow)
+
+Status tiket pada basis data PostgreSQL (schema.sql) dan representasi visual di komponen React (App.jsx) diubah menjadi sebagai berikut:
+
+Status Lama (Konsep Awal)
+
+Status Baru (Pembaruan)
+
+Representasi Warna UI
+
+Aksi Tindakan Admin
+
+open
+
+Belum dikerjakan
+
+Biru Muda (sky)
+
+Tombol "Proses" & "Tolak"
+
+in_progress
+
+Diproses
+
+Kuning/Jingga (amber)
+
+Tombol "Selesaikan" & "Tolak"
+
+completed
+
+Selesai
+
+Hijau (emerald)
+
+Selesai (Read-only)
+
+cancelled
+
+Ditolak (Rejected)
+
+Merah Mawar (rose)
+
+Ditolak (Read-only)
+
+3. Detail Implementasi Komponen Sistem
+
+3.1 Layar Utama & Otentikasi (Login Screen)
+
+Pembersihan Komponen: Menghapus tombol CONTINUE AS GUEST serta elemen pembatas (divider) pada form login.
+
+Validasi Ketat: Pengguna wajib memilih salah satu dari akun administrator/petugas IT resmi yang terdaftar di database:
+
+andri_admin (Andri Hermawan)
+
+budi_support (Budi Santoso)
+
+citra_it (Citra Lestari)
+
+Konsistensi Data: Menghapus data mock Dani Ramadhan (Tamu) dari daftar pengguna sistem.
+
+3.2 Navigasi Kiri (Sidebar) & Penataan Konten
+
+Navigasi tetap dipertahankan di sisi kiri secara simpel dan profesional dengan menu:
+
+Dashboard Utama: Menampilkan statistik kartu grid (Total, Belum dikerjakan, Diproses, Selesai, Ditolak) serta ringkasan tiket aktif.
+
+Informasi Tiket: Memuat tabel informasi tiket lengkap dengan fitur pencarian dan filter status.
+
+Daftar Petugas: Menampilkan kartu profil personil beserta beban kerja aktif.
+
+Diagram Tiket: Memuat visualisasi grafik batang kontribusi penyelesaian kasus.
+
+3.3 Modul Unduh PDF (Kinerja Petugas)
+
+Mekanisme Pemuatan: Menggunakan metode lazy-loading via CDN untuk memuat pustaka jsPDF dan jspdf-autotable secara asinkron saat tombol diklik.
+
+Struktur Dokumen PDF:
+
+Header: Kop surat formal berwarna dasar gelap (Slate-800) dengan teks putih.
+
+Metadata: Mencantumkan nama pencetak (berdasarkan sesi JWT), tanggal cetak, dan waktu cetak (WIB).
+
+Ringkasan Eksekutif: Kotak informasi ringkas mengenai total petugas dan total tiket yang berhasil diselesaikan di database.
+
+Tabel Distribusi Kontribusi: Tabel bergaris (striped) yang memuat peringkat, nama petugas, username, jumlah tiket tuntas, dan rasio persentase kontribusi.
+
+4. Alur Kerja Sinkronisasi Data Real-time (Data Flow)
+
+Setiap aksi pembaruan status oleh admin akan memicu rantai kejadian (event chain) sebagai berikut:
+
+[UI Dashboard: Klik Selesaikan/Tolak] 
+                 │
+                 ▼
+[Optimistic Update di State React] ──► (UI terasa instan bagi pengguna)
+                 │
+                 ▼
+[HTTP PATCH Request ke /api/tickets/:id]
+                 │
+                 ▼
+[Backend Node.js/Express Jalankan Query UPDATE]
+                 │
+                 ▼
+[PostgreSQL Trigger: notify_ticket_changes()] ──► Menembakkan pg_notify('ticket_update')
+                 │
+                 ▼
+[Backend Server menerima event 'notification']
+                 │
+                 ▼
+[Socket.IO Broadcast event 'ticketChanged' ke Semua Klien]
+                 │
+                 ▼
+[Frontend Klien terima event ──► Memperbarui State & Muncul Floating Banner Notifikasi]
+
+
+5. Langkah Selanjutnya & Catatan Keamanan (Next Steps)
+
+Refaktor Backend: Menyelaraskan tipe ENUM pada schema.sql di PostgreSQL agar sesuai dengan empat status baru (belum_dikerjakan, diproses, selesai, ditolak).
+
+Enkripsi Kredensial: Mengganti penyimpanan password teks polos dengan proses hashing menggunakan bcrypt sebelum masuk ke tahap produksi.
+
+Environment Variables: Memisahkan URL endpoint API dan Socket ke file .env di sisi frontend.
