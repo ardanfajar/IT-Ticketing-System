@@ -26,6 +26,26 @@ import { io } from 'socket.io-client';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
+// Helper function to format timestamp into DD-MM-YYYY HH:MM format
+const formatDateTime = (dateStr: string | null) => {
+  if (!dateStr) return '-';
+  try {
+    const normalizedStr = dateStr.includes('T') ? dateStr : dateStr.replace(' ', 'T');
+    const d = new Date(normalizedStr);
+    if (isNaN(d.getTime())) return dateStr;
+    
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    
+    return `${day}-${month}-${year} ${hours}:${minutes}`;
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 interface UserSession {
   id: number;
   username: string;
@@ -290,7 +310,11 @@ export default function App() {
         body: JSON.stringify({ status: newStatus })
       });
 
-      if (!res.ok) {
+      if (res.ok) {
+        // Sync database counts immediately
+        fetchTickets();
+        fetchStaff();
+      } else {
         // Rollback state
         setTickets(previousTickets);
         const errData = await res.json();
@@ -332,12 +356,23 @@ export default function App() {
     });
   }, [tickets, filterStatus, searchQuery]);
 
+  // Menghitung jumlah tiket selesai secara dinamis untuk performa real-time dan optimistik
+  const staffWithCounts = useMemo(() => {
+    return usersList.map(u => {
+      const count = tickets.filter(t => t.status === 'selesai' && t.completed_by === u.name).length;
+      return {
+        ...u,
+        completedCount: count
+      };
+    });
+  }, [usersList, tickets]);
+
   // Sorting petugas berdasarkan jumlah penyelesaian tiket
   const sortedStaffForChart = useMemo(() => {
-    return [...usersList]
+    return [...staffWithCounts]
       .filter(u => u.role === 'admin' || u.role === 'petugas')
       .sort((a, b) => b.completedCount - a.completedCount);
-  }, [usersList]);
+  }, [staffWithCounts]);
 
   // Max value untuk proporsi diagram
   const maxCompleted = useMemo(() => {
@@ -737,61 +772,12 @@ export default function App() {
               <span className="font-mono">Listening to ticket_update</span>
             </div>
 
-            {/* Tombol Shortcut Simulasi Tiket di Header */}
-            <button
-              onClick={() => {
-                const msgs = [
-                  "Server database PostgreSQL mengalami spike CPU 100%!",
-                  "Akses VPN kantor cabang Bali terputus total.",
-                  "Request pembuatan backup database mingguan selesai.",
-                  "Email phising dilaporkan oleh divisi HR."
-                ];
-                const msg = msgs[Math.floor(Math.random() * msgs.length)];
-                setNewTicketMsg(msg);
-                setNewTicketSource(["WhatsApp", "Telepon"][Math.floor(Math.random() * 2)]);
-                setShowAddModal(true);
-              }}
-              className="bg-indigo-600/10 hover:bg-indigo-600 text-indigo-400 hover:text-white border border-indigo-500/20 px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer animate-pulse"
-            >
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>Simulasi Cepat</span>
-            </button>
           </div>
         </header>
 
         {/* Area Isi Konten */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
-          {/* SIMULASI REALTIME MONITOR (POSTGRESQL & SOCKET.IO LOGS) */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl overflow-hidden shadow-lg">
-            <div className="bg-slate-850 px-5 py-3 border-b border-slate-800 flex items-center justify-between">
-              <div className="flex items-center gap-2.5">
-                <div className="w-2.5 h-2.5 bg-emerald-500 rounded-full animate-pulse"></div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                  <Radio className="w-3.5 h-3.5 text-indigo-400" />
-                  Aliran Data Real-time (Socket.IO + PostgreSQL Triggers)
-                </h3>
-              </div>
-              <span className="text-[10px] bg-slate-950 text-slate-400 px-2 py-0.5 rounded font-mono">
-                System Active
-              </span>
-            </div>
-            <div className="p-4 bg-slate-950/80 font-mono text-[11px] leading-relaxed max-h-36 overflow-y-auto space-y-1.5 text-slate-300">
-              {socketLogs.map(log => (
-                <div key={log.id} className="flex items-start gap-2">
-                  <span className="text-slate-600 font-medium select-none shrink-0">[{log.time}]</span>
-                  {log.type === 'postgres' ? (
-                    <span className="text-amber-400 font-bold shrink-0">[PG TRIGGER]</span>
-                  ) : log.type === 'socket' ? (
-                    <span className="text-indigo-400 font-bold shrink-0">[SOCKET.IO]</span>
-                  ) : (
-                    <span className="text-slate-400 font-bold shrink-0">[INFO]</span>
-                  )}
-                  <span className="text-slate-300 break-all">{log.text}</span>
-                </div>
-              ))}
-            </div>
-          </div>
 
           {/* TAB 1: DASHBOARD */}
           {activeTab === 'dashboard' && (
@@ -894,7 +880,15 @@ export default function App() {
                                 {ticket.status === 'belum_dikerjakan' ? 'BELUM DIKERJAKAN' : ticket.status === 'ditolak' ? 'DITOLAK (REJECTED)' : ticket.status.toUpperCase()}
                               </span>
                             </td>
-                            <td className="py-3 text-slate-400">{ticket.source}</td>
+                            <td className="py-3">
+                               <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                 ticket.source.toLowerCase() === 'whatsapp' 
+                                   ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' 
+                                   : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20'
+                               }`}>
+                                 {ticket.source}
+                               </span>
+                             </td>
                           </tr>
                         ))}
                       </tbody>
@@ -1014,10 +1008,14 @@ export default function App() {
                           <tr key={ticket.id} className="hover:bg-slate-850/30 transition-colors">
                             <td className="py-4 px-5 font-mono font-bold text-indigo-400">{ticket.ticket_number}</td>
                             <td className="py-4 px-4">
-                              <span className="bg-slate-950 px-2.5 py-1 rounded-lg border border-slate-850 text-slate-400 font-medium">
-                                {ticket.source}
-                              </span>
-                            </td>
+                               <span className={`inline-flex items-center px-2.5 py-1 rounded-lg border text-[11px] font-semibold ${
+                                 ticket.source.toLowerCase() === 'whatsapp' 
+                                   ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' 
+                                   : 'bg-indigo-500/10 text-indigo-400 border-indigo-500/20'
+                               }`}>
+                                 {ticket.source}
+                               </span>
+                             </td>
                             <td className="py-4 px-4">
                               <p className="line-clamp-2 leading-relaxed">{ticket.message}</p>
                             </td>
@@ -1037,7 +1035,7 @@ export default function App() {
                                 {ticket.status === 'belum_dikerjakan' ? 'BELUM DIKERJAKAN' : ticket.status === 'ditolak' ? 'DITOLAK (REJECTED)' : ticket.status.toUpperCase()}
                               </span>
                             </td>
-                            <td className="py-4 px-4 font-mono text-slate-500">{ticket.created_at}</td>
+                            <td className="py-4 px-4 font-mono text-slate-500">{formatDateTime(ticket.created_at)}</td>
                             <td className="py-4 px-4">
                               {ticket.completed_by ? (
                                 <div className="flex items-center gap-2">
@@ -1046,7 +1044,7 @@ export default function App() {
                                   </div>
                                   <div>
                                     <p className="font-medium text-slate-200">{ticket.completed_by}</p>
-                                    <p className="text-[9px] text-slate-500 font-mono">{ticket.completed_at}</p>
+                                    <p className="text-[9px] text-slate-500 font-mono">{formatDateTime(ticket.completed_at)}</p>
                                   </div>
                                 </div>
                               ) : (
@@ -1055,37 +1053,29 @@ export default function App() {
                             </td>
                             <td className="py-4 px-5 text-right">
                               {user.role === 'admin' || user.role === 'petugas' ? (
-                                <div className="flex items-center justify-end gap-1">
-                                  {ticket.status === 'belum_dikerjakan' && (
-                                    <button 
-                                      onClick={() => updateTicketStatus(ticket.id, 'diproses')}
-                                      className="bg-amber-500/15 hover:bg-amber-500 text-amber-400 hover:text-white border border-amber-500/30 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] transition-all cursor-pointer"
+                                <div className="flex items-center justify-end">
+                                  {ticket.status === 'selesai' || ticket.status === 'ditolak' ? (
+                                    <span className={`text-[11px] font-bold tracking-wide px-3 py-1.5 rounded-lg border ${
+                                      ticket.status === 'selesai' 
+                                        ? 'text-emerald-400 bg-emerald-500/5 border-emerald-500/20' 
+                                        : 'text-rose-400 bg-rose-500/5 border-rose-500/20'
+                                    }`}>
+                                      {ticket.status === 'selesai' ? 'Selesai ✓' : 'Ditolak ✕'}
+                                    </span>
+                                  ) : (
+                                    <select
+                                      value={ticket.status}
+                                      onChange={(e) => updateTicketStatus(ticket.id, e.target.value as ITTicket['status'])}
+                                      className={`bg-slate-950 border text-[11px] font-bold px-3 py-2 rounded-xl focus:outline-none focus:ring-1 transition-all cursor-pointer ${
+                                        ticket.status === 'diproses' ? 'text-amber-400 border-amber-500/30 focus:ring-amber-500 focus:border-amber-500' :
+                                        'text-sky-400 border-sky-500/30 focus:ring-sky-500 focus:border-sky-500'
+                                      }`}
                                     >
-                                      Proses
-                                    </button>
-                                  )}
-                                  {(ticket.status === 'belum_dikerjakan' || ticket.status === 'diproses') && (
-                                    <>
-                                      <button 
-                                        onClick={() => updateTicketStatus(ticket.id, 'selesai')}
-                                        className="bg-emerald-500/15 hover:bg-emerald-500 text-emerald-400 hover:text-white border border-emerald-500/30 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] transition-all cursor-pointer"
-                                      >
-                                        Selesaikan
-                                      </button>
-                                      <button 
-                                        onClick={() => updateTicketStatus(ticket.id, 'ditolak')}
-                                        className="bg-rose-500/15 hover:bg-rose-500 text-rose-400 hover:text-white border border-rose-500/30 font-semibold px-2.5 py-1.5 rounded-lg text-[10px] transition-all cursor-pointer"
-                                        title="Tolak Tiket"
-                                      >
-                                        Tolak (Reject)
-                                      </button>
-                                    </>
-                                  )}
-                                  {ticket.status === 'selesai' && (
-                                    <span className="text-xs text-emerald-400 font-medium">Selesai ✓</span>
-                                  )}
-                                  {ticket.status === 'ditolak' && (
-                                    <span className="text-xs text-rose-400 font-semibold">Ditolak ✕</span>
+                                      <option value="belum_dikerjakan" disabled={ticket.status !== 'belum_dikerjakan'} className="bg-slate-900 text-sky-400 font-semibold">Belum Dikerjakan</option>
+                                      <option value="diproses" className="bg-slate-900 text-amber-400 font-semibold">Diproses</option>
+                                      <option value="selesai" className="bg-slate-900 text-emerald-400 font-semibold">Selesai</option>
+                                      <option value="ditolak" className="bg-slate-900 text-rose-400 font-semibold">Ditolak</option>
+                                    </select>
                                   )}
                                 </div>
                               ) : (
@@ -1139,7 +1129,7 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {usersList.map(staff => {
+                {staffWithCounts.map(staff => {
                   return (
                     <div key={staff.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-sm flex flex-col justify-between relative overflow-hidden">
                       <div className="absolute top-3 right-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 p-1.5 rounded-lg" title="Administrator">
