@@ -23,6 +23,13 @@ app.use(express.json());
 const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkeyforticketing2026';
 
+// Helper: format current date/time in Asia/Jakarta timezone as 'YYYY-MM-DD HH:MM'
+const getNowJakarta = () => {
+  const now = new Date();
+  const jakartaStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' });
+  return jakartaStr.slice(0, 16);
+};
+
 // ------------------------------------------------------------------
 // POSTGRESQL LISTEN/NOTIFY FOR REAL-TIME SYNC via SOCKET.IO
 // ------------------------------------------------------------------
@@ -190,7 +197,7 @@ app.post('/api/tickets', async (req, res) => {
     const totalTickets = parseInt(countResult.rows[0].count);
     const ticketNum = `TCK-2026-${String(totalTickets + 101).padStart(3, '0')}`;
 
-    const nowStr = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const nowStr = getNowJakarta();
 
     const result = await db.query(
       `INSERT INTO tickets (ticket_number, source, message, status, created_at, updated_at) 
@@ -226,8 +233,8 @@ app.patch('/api/tickets/:id', authenticateToken, async (req, res) => {
     const isCompleted = status === 'selesai';
     const isCancelled = status === 'ditolak';
     const completedBy = isCompleted || isCancelled ? req.user.name : null;
-    const completedAt = isCompleted || isCancelled ? new Date().toISOString().replace('T', ' ').slice(0, 16) : null;
-    const updatedAt = new Date().toISOString().replace('T', ' ').slice(0, 16);
+    const completedAt = isCompleted || isCancelled ? getNowJakarta() : null;
+    const updatedAt = getNowJakarta();
 
     // Update ticket
     const updateResult = await db.query(
