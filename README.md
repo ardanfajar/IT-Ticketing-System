@@ -1,119 +1,137 @@
 # IT Ticketing System
 
-Dokumentasi ini menjelaskan cara menyiapkan dan menjalankan proyek IT Ticketing System yang terdiri dari backend Express + PostgreSQL dan frontend React + Vite.
+Aplikasi dashboard manajemen tiket IT internal berbasis web fullstack. Dibangun dengan arsitektur monorepo yang memisahkan frontend dan backend dalam satu repository.
+
+## Ringkasan
+
+- Frontend React + TypeScript dengan Vite dan Tailwind CSS.
+- Backend Node.js + Express dengan PostgreSQL sebagai database.
+- Autentikasi menggunakan JWT.
+- Siap dijalankan secara lokal dan didesain untuk deployment di Vercel.
+
+## Tech Stack
+
+### Frontend
+
+- React
+- TypeScript
+- Vite
+- Tailwind CSS
+- PostCSS
+- ESLint
+- jsPDF
+
+### Backend
+
+- Node.js
+- Express
+- PostgreSQL
+- pg (node-postgres)
+- JSON Web Token
+- bcrypt
+- cors
+- dotenv
+
+### Deployment & Tooling
+
+- Vercel
+- @vercel/static-build
+- @vercel/node
 
 ## Struktur Projek
 
-- `backend/` - server API Node.js menggunakan Express, Socket.IO, JWT, dan PostgreSQL
-- `frontend/` - aplikasi web React + TypeScript + Vite
-- `backend/schema.sql` - definisi tabel `users` dan `tickets` beserta trigger `notify_ticket_changes`
-- `backend/seed.js` - skrip untuk menambahkan data awal ke database
-- `IT_Ticketing_System.sql` - dump SQL untuk restore database jika diperlukan
-- `restore_db_local.py` - utilitas Python untuk memulihkan database lokal
-- `test_connection.py` - skrip sederhana untuk menguji koneksi PostgreSQL
+```
+IT Ticketing System/
+├── frontend/                   # Aplikasi React (Vite + TypeScript)
+│   ├── src/                    # Kode sumber frontend
+│   ├── public/                 # Asset statis
+│   ├── tailwind.config.js
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── package.json
+│
+├── backend/                    # Server API (Express + PostgreSQL)
+│   ├── api/                    # Entry point serverless untuk Vercel
+│   ├── server.js               # Server Express lokal
+│   ├── db.js                   # Koneksi database
+│   ├── schema.sql              # Struktur tabel database
+│   ├── seed.js                 # Data awal (opsional)
+│   └── package.json
+│
+├── vercel.json                 # Konfigurasi deployment Vercel
+├── test_connection.py          # Utilitas tes koneksi PostgreSQL
+└── README.md
+```
 
 ## Prasyarat
 
-- Node.js 18+ dan npm
-- PostgreSQL
-- Git (opsional)
+- Node.js 18+
+- npm
+- PostgreSQL (lokal atau cloud)
 
-## Setup Database
+## Setup & Instalasi
 
-1. Buat database PostgreSQL baru.
-2. Tentukan koneksi dengan environment variable `DATABASE_URL`.
-   Contoh format:
-
-```env
-DATABASE_URL=postgresql://username:password@localhost:5432/it_ticketing_db
-JWT_SECRET=supersecretjwtkeyforticketing2026
-PORT=5000
-```
-
-3. Jalankan file SQL untuk membuat schema:
+### 1. Clone Repository
 
 ```bash
-psql "$DATABASE_URL" -f backend/schema.sql
+git clone <repository-url>
+cd "IT Ticketing System"
 ```
 
-4. (Opsional) Isi data awal dengan seed:
+### 2. Konfigurasi Koneksi Database
+
+Siapkan connection string PostgreSQL dalam file environment lokal di folder `backend/`. Pastikan file konfigurasi ini tidak dibagikan atau dicatat di kartu publik.
+
+### 3. Jalankan Backend
 
 ```bash
 cd backend
 npm install
-npm run seed
-```
-
-## Setup Backend
-
-1. Masuk ke folder backend:
-
-```bash
-cd backend
-```
-
-2. Install dependency:
-
-```bash
-npm install
-```
-
-3. Jalankan server:
-
-```bash
 npm run dev
 ```
 
-Server akan berjalan di `http://localhost:5000` secara default.
-
-## Setup Frontend
-
-1. Masuk ke folder frontend:
+### 4. Jalankan Frontend
 
 ```bash
 cd frontend
-```
-
-2. Install dependency:
-
-```bash
 npm install
-```
-
-3. Jalankan aplikasi:
-
-```bash
 npm run dev
 ```
 
-Akses aplikasi di `http://localhost:5173`.
+## Catatan
 
-## Perintah Penting
+- Hindari menyimpan data sensitif seperti credential database atau secret key di `README.md`.
+- Gunakan file environment lokal yang tidak disertakan dalam kontrol versi untuk konfigurasi rahasia.
+- Konfigurasi spesifik database dan secret hanya perlu dicatat secara pribadi atau di dalam dokumentasi deploy yang aman.
 
-### Backend
-- `npm start` - menjalankan `server.js` secara normal
-- `npm run dev` - menjalankan server dengan mode watch
-- `npm run seed` - menjalankan seeding data awal
 
-### Frontend
-- `npm run dev` - menjalankan Vite development server
-- `npm run build` - membangun aplikasi untuk produksi
-- `npm run preview` - preview hasil build
-- `npm run lint` - memeriksa kode dengan ESLint
+| Perintah | Fungsi |
+|----------|--------|
+| `npm run dev` | Jalankan Vite dev server |
+| `npm run build` | Build produksi (`tsc` + `vite build`) |
+| `npm run preview` | Preview hasil build lokal |
+| `npm run lint` | Jalankan ESLint |
 
-## Informasi Tambahan
+## Environment Variables
 
-- Backend menggunakan `DATABASE_URL` untuk koneksi PostgreSQL.
-- JWT secret ditentukan dari environment variable `JWT_SECRET`.
-- API utama yang tersedia:
-  - `POST /api/login` - otentikasi pengguna
-  - `GET /api/users/me` - verifikasi sesi JWT
-  - `GET /api/tickets` - daftar tiket
-  - `POST /api/tickets` - membuat tiket baru
-  - `PATCH /api/tickets/:id` - memperbarui status tiket (diperlukan JWT)
+### Backend (`backend/.env`)
+
+| Variable | Wajib | Default | Keterangan |
+|----------|-------|---------|------------|
+| `DATABASE_URL` | ✅ | - | Connection string PostgreSQL |
+| `JWT_SECRET` | ❌ | `supersecretjwt...` | Secret key untuk JWT |
+| `PORT` | ❌ | `5000` | Port server Express |
+
+### Frontend (`frontend/.env`)
+
+| Variable | Wajib | Default | Keterangan |
+|----------|-------|---------|------------|
+| `VITE_API_URL` | ❌ | `http://localhost:5000` | Base URL backend API |
+
+
 
 ## Catatan
 
-- Jika ingin menggunakan data dump SQL, gunakan `IT_Ticketing_System.sql` untuk memulihkan tabel dan data.
 - Pastikan frontend dan backend berjalan pada origin yang diizinkan oleh CORS (`localhost:5173`, `localhost:3000`).
-- Jika terjadi masalah koneksi, cek kembali nilai `DATABASE_URL` dan status layanan PostgreSQL.
+- Jika menggunakan PostgreSQL cloud (Supabase, Neon, Railway), pastikan SSL diaktifkan pada connection string (`?sslmode=require`).
+- File `backend/api/index.js` adalah entrypoint khusus Vercel serverless — untuk development lokal, gunakan `server.js`.

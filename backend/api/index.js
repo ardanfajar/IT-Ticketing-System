@@ -2,36 +2,31 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcrypt');
-const db = require('./db');
+const db = require('../db');
 require('dotenv').config();
 
 const app = express();
-// Configure CORS
+
 app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'http://127.0.0.1:5173', 'http://127.0.0.1:3000'],
-  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+  origin: true,
+  methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
   credentials: true
 }));
 
 app.use(express.json());
 
-const PORT = process.env.PORT || 5000;
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecretjwtkeyforticketing2026';
 
-// Helper: format current date/time in Asia/Jakarta timezone as 'YYYY-MM-DD HH:MM'
 const getNowJakarta = () => {
   const now = new Date();
   const jakartaStr = now.toLocaleString('sv-SE', { timeZone: 'Asia/Jakarta' });
   return jakartaStr.slice(0, 16);
 };
 
-// ------------------------------------------------------------------
-// JWT AUTH MIDDLEWARE
-// ------------------------------------------------------------------
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-  
+
   if (!token) {
     return res.status(401).json({ error: 'Akses ditolak. Token tidak ditemukan.' });
   }
@@ -45,21 +40,10 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ------------------------------------------------------------------
-// API ENDPOINTS
-// ------------------------------------------------------------------
-
-// Root Route
-app.get('/', (req, res) => {
-  res.send('<h2>IT Ticketing System Backend API is running.</h2><p>Please access the Frontend web application at <a href="http://127.0.0.1:5173">http://127.0.0.1:5173</a> or <a href="http://localhost:5173">http://localhost:5173</a>.</p>');
-});
-
-// Health Check
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date() });
 });
 
-// Authenticate and Login
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   if (!username || !password) {
@@ -78,7 +62,6 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Kredensial tidak valid.' });
     }
 
-    // Generate JWT
     const token = jwt.sign(
       {
         id: dbUser.id,
@@ -105,12 +88,10 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Verify Current Session
 app.get('/api/users/me', authenticateToken, (req, res) => {
   res.json(req.user);
 });
 
-// Get Staff / Users performance
 app.get('/api/staff', async (req, res) => {
   try {
     const result = await db.query('SELECT id, username, name, role, avatar, completed_count AS "completedCount" FROM users ORDER BY completed_count DESC');
@@ -121,7 +102,6 @@ app.get('/api/staff', async (req, res) => {
   }
 });
 
-// Get All Tickets
 app.get('/api/tickets', async (req, res) => {
   try {
     const result = await db.query('SELECT * FROM tickets ORDER BY id DESC');
@@ -132,7 +112,6 @@ app.get('/api/tickets', async (req, res) => {
   }
 });
 
-// Create Ticket (Simulate API / Bot)
 app.post('/api/tickets', async (req, res) => {
   const { source, message } = req.body;
   if (!source || !message) {
@@ -140,16 +119,15 @@ app.post('/api/tickets', async (req, res) => {
   }
 
   try {
-    // Generate ticket number
     const countResult = await db.query('SELECT COUNT(*) FROM tickets');
     const totalTickets = parseInt(countResult.rows[0].count);
-    const ticketNum = `TCK-2026-${String(totalTickets + 101).padStart(3, '0')}`;
+    const ticketNum = 'TCK-2026-' + String(totalTickets + 101).padStart(3, '0');
 
     const nowStr = getNowJakarta();
 
     const result = await db.query(
-      `INSERT INTO tickets (ticket_number, source, message, status, created_at, updated_at) 
-       VALUES ($1, $2, $3, 'belum_dikerjakan', $4, $5) 
+      `INSERT INTO tickets (ticket_number, source, message, status, created_at, updated_at)
+       VALUES ($1, $2, $3, 'belum_dikerjakan', $4, $5)
        RETURNING *`,
       [ticketNum, source, message, nowStr, nowStr]
     );
@@ -161,7 +139,6 @@ app.post('/api/tickets', async (req, res) => {
   }
 });
 
-// Update Ticket Status (Protected)
 app.patch('/api/tickets/:id', authenticateToken, async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
@@ -171,29 +148,24 @@ app.patch('/api/tickets/:id', authenticateToken, async (req, res) => {
   }
 
   try {
-    // Check if ticket exists
     const ticketCheck = await db.query('SELECT * FROM tickets WHERE id = $1', [id]);
     if (ticketCheck.rows.length === 0) {
       return res.status(404).json({ error: 'Tiket tidak ditemukan.' });
     }
 
-    const ticket = ticketCheck.rows[0];
     const isCompleted = status === 'selesai';
     const isCancelled = status === 'ditolak';
     const completedBy = isCompleted || isCancelled ? req.user.name : null;
     const completedAt = isCompleted || isCancelled ? getNowJakarta() : null;
     const updatedAt = getNowJakarta();
 
-    // Update ticket
     const updateResult = await db.query(
-      `UPDATE tickets 
-       SET status = $1, completed_by = $2, completed_at = $3, updated_at = $4 
-       WHERE id = $5 
+      `UPDATE tickets
+       SET status = $1, completed_by = $2, completed_at = $3, updated_at = $4
+       WHERE id = $5
        RETURNING *`,
       [status, completedBy, completedAt, updatedAt, id]
     );
-
-    // Note: completed_count increment/decrement is handled automatically at database level by notify_ticket_changes() trigger function.
 
     res.json(updateResult.rows[0]);
   } catch (err) {
@@ -202,7 +174,4 @@ app.patch('/api/tickets/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Start Server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
-});
+module.exports = app;

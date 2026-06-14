@@ -23,10 +23,8 @@ import {
   Sun,
   Moon
 } from 'lucide-react';
-import { io } from 'socket.io-client';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 
 // Helper function to format timestamp into DD-MM-YYYY HH:MM format
 const formatDateTime = (dateStr: string | null) => {
@@ -85,13 +83,6 @@ interface ITStaff {
   completedCount: number;
 }
 
-interface LogEntry {
-  id: number;
-  type: string;
-  text: string;
-  time: string;
-}
-
 export default function App() {
   // === STATE UTAMA ===
   const [user, setUser] = useState<UserSession | null>(null);
@@ -113,10 +104,7 @@ export default function App() {
   const [newTicketSource, setNewTicketSource] = useState<string>('WhatsApp');
   const [showAddModal, setShowAddModal] = useState<boolean>(false);
 
-  // State Notifikasi & Simulasi Socket.IO Logs
-  const [socketLogs, setSocketLogs] = useState<LogEntry[]>([
-    { id: 1, type: 'info', text: 'Menginisialisasi koneksi Socket.IO...', time: new Date().toTimeString().split(' ')[0] }
-  ]);
+  // State Notifikasi
   const [realtimeNotification, setRealtimeNotification] = useState<{ message: string; type: string } | null>(null);
 
   // State Dark Mode
@@ -136,16 +124,6 @@ export default function App() {
     }
     localStorage.setItem('it_dark_mode', String(darkMode));
   }, [darkMode]);
-
-  // === AUXILIARY: LOGS ===
-  const addSocketLog = (type: string, text: string) => {
-    const now = new Date();
-    const timeStr = now.toTimeString().split(' ')[0];
-    setSocketLogs(prev => [
-      { id: Date.now(), type, text, time: timeStr },
-      ...prev.slice(0, 15) // Batasi hanya 15 log terbaru
-    ]);
-  };
 
   // === SESSION CHECK ON MOUNT ===
   useEffect(() => {
@@ -191,47 +169,6 @@ export default function App() {
     }
   }, [usersList]);
 
-  // === REAL-TIME SYNC (SOCKET.IO CLIENT) ===
-  useEffect(() => {
-    console.log(`Connecting to Socket.IO server at: ${SOCKET_URL}`);
-    const socket = io(SOCKET_URL);
-
-    socket.on('connect', () => {
-      addSocketLog('socket', `Koneksi Socket.IO terhubung ke ${SOCKET_URL}`);
-      addSocketLog('postgres', 'PostgreSQL LISTEN/NOTIFY siap mendengarkan channel "ticket_update"');
-    });
-
-    socket.on('ticketChanged', (payload) => {
-      console.log('Realtime ticket change received:', payload);
-      
-      // Sync state from server
-      fetchTickets();
-      fetchStaff();
-
-      const { operation, ticket } = payload;
-      let logText = '';
-      if (operation === 'INSERT') {
-        logText = `Database INSERT di tabel "tickets": ${ticket.ticket_number}. Memicu pg_notify()`;
-        triggerBannerNotification(`Tiket Baru Masuk: ${ticket.ticket_number} dari ${ticket.source}`);
-      } else if (operation === 'UPDATE') {
-        logText = `Database UPDATE untuk ${ticket.ticket_number} berhasil. Memicu trigger notify_ticket_changes()`;
-        triggerBannerNotification(`Status tiket ${ticket.ticket_number} diperbarui menjadi ${ticket.status.toUpperCase().replace('_', ' ')}`);
-      }
-      
-      addSocketLog('postgres', logText);
-      setTimeout(() => {
-        addSocketLog('socket', `Socket.IO memancarkan event "ticketChanged" untuk ${ticket.ticket_number}`);
-      }, 500);
-    });
-
-    socket.on('disconnect', () => {
-      addSocketLog('info', 'Sesi Socket.IO terputus.');
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, []);
 
   // === FUNGSIONALITAS AUTHENTIKASI ===
   const handleLogin = async (e: React.FormEvent) => {
@@ -250,7 +187,6 @@ export default function App() {
         localStorage.setItem('it_user', JSON.stringify(data));
         localStorage.setItem('it_token', data.token);
         setUser(data);
-        addSocketLog('info', `Pengguna ${data.name} berhasil login dengan aman. JWT Token disimpan.`);
       } else {
         const errData = await res.json();
         setLoginError(errData.error || 'Kredensial tidak valid. Silakan gunakan akun terdaftar.');
@@ -265,7 +201,6 @@ export default function App() {
     localStorage.removeItem('it_user');
     localStorage.removeItem('it_token');
     setUser(null);
-    addSocketLog('info', 'Sesi login dihapus. Berhasil keluar.');
   };
 
   // Pemicu Tiket Baru (Klien mengirim HTTP POST, memicu PostgreSQL trigger)
@@ -285,6 +220,9 @@ export default function App() {
       if (res.ok) {
         setNewTicketMsg('');
         setShowAddModal(false);
+        fetchTickets();
+        fetchStaff();
+        triggerBannerNotification('Tiket baru berhasil dibuat!');
       } else {
         triggerBannerNotification('Gagal mengirim tiket masuk.', 'error');
       }
@@ -325,7 +263,6 @@ export default function App() {
     });
 
     setTickets(updatedTickets);
-    addSocketLog('info', `Melakukan PATCH optimistik untuk tiket ID #${ticketId} ke status: ${newStatus}`);
 
     try {
       const res = await fetch(`${API_URL}/api/tickets/${ticketId}`, {
@@ -410,7 +347,6 @@ export default function App() {
   const handleDownloadPDF = () => {
     if (!user) return;
     setPdfLoading(true);
-    addSocketLog('info', 'Memulai proses pembuatan laporan PDF...');
 
     const jsPdfScript = document.createElement('script');
     jsPdfScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -442,7 +378,7 @@ export default function App() {
           doc.setFontSize(10);
           doc.setTextColor(148, 163, 184); // Slate-400
           doc.text('Laporan Hasil Analisis Kinerja & Produktivitas Petugas IT Support', 15, 25);
-          doc.text('Sistem Real-Time Terintegrasi (Express, PostgreSQL, Socket.IO)', 15, 30);
+          doc.text('Sistem Terintegrasi (Express, PostgreSQL)', 15, 30);
 
           // Info Laporan
           doc.setTextColor(30, 41, 59);
@@ -538,7 +474,6 @@ export default function App() {
           doc.save(`Laporan_Kinerja_Petugas_${tglString}.pdf`);
           
           setPdfLoading(false);
-          addSocketLog('socket', 'Laporan PDF berhasil di-render dan diunduh oleh klien.');
           triggerBannerNotification('Sukses: Laporan PDF Berhasil Diunduh!');
         } catch (err) {
           console.error(err);
@@ -658,7 +593,7 @@ export default function App() {
             <Radio className="w-5 h-5 animate-pulse text-indigo-400" />
           </div>
           <div>
-            <h4 className="font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400">Notifikasi Real-time</h4>
+            <h4 className="font-bold text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400">Notifikasi</h4>
             <p className="text-sm font-medium mt-0.5">{realtimeNotification.message}</p>
           </div>
         </div>
@@ -1313,9 +1248,9 @@ export default function App() {
                 </div>
 
                 <div className="bg-white dark:bg-slate-900 border border-gray-200 dark:border-slate-800 p-5 rounded-2xl flex flex-col justify-center">
-                  <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">Mekanisme PostgreSQL Notifikasi</h4>
+                  <h4 className="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider mb-1">Informasi Sistem</h4>
                   <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
-                    Setiap perubahan di atas dikirimkan dari server melalui PostgreSQL trigger <code className="bg-gray-100 dark:bg-slate-950 px-1 py-0.5 rounded text-indigo-600 dark:text-indigo-400 text-[10px]">pg_notify('ticket_update', ...)</code> dan dipancarkan ke frontend menggunakan Socket.IO.
+                    Setiap perubahan di atas tercatat di database PostgreSQL dan ditampilkan secara otomatis di dashboard.
                   </p>
                 </div>
               </div>
@@ -1376,7 +1311,7 @@ export default function App() {
               </div>
 
               <div className="bg-gray-50 dark:bg-slate-950/60 p-3 rounded-xl border border-gray-200 dark:border-slate-800 text-[10px] text-gray-500 dark:text-slate-400 leading-relaxed font-mono">
-                ⚡ Tindakan ini membuat tiket baru langsung di database PostgreSQL dan menyiarkan event pembaruan secara real-time ke semua dashboard petugas aktif via Socket.IO.
+                ⚡ Tindakan ini membuat tiket baru langsung di database PostgreSQL.
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
